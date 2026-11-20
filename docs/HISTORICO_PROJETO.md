@@ -111,7 +111,7 @@ Limite conhecido: a guarda é uma heurística por expressões regulares. Ela gar
 
 ### v1.0.0 — versão final (novembro de 2026)
 
-- **Suíte de testes** `tests/test_rag_pipeline.py`: 30 testes em 5 grupos (conectividade, ingestão, recuperação, geração, trava anti-alucinação); 10 rodam sem Ollama.
+- **Suíte de testes** `tests/test_rag_pipeline.py`: 89 testes em 7 grupos (conectividade, ingestão, recuperação, geração, trava anti-alucinação, segurança do upload/HTML e robustez do app); 69 rodam sem Ollama.
 - **Métrica corrigida para cosseno**: a base usava distância L2 (padrão do ChromaDB) e exibia a distância como "score de similaridade". Agora a coleção é criada com cosseno e o score é a similaridade real. Bases antigas são detectadas e exigem reindexação.
 - **Trava anti-alucinação reforçada**: constante `REFUSAL_MESSAGE`, instrução explícita de responder somente com a recusa, e guarda determinística pós-geração.
 - **Motor refatorado**: `load_and_split()` e `retrieve()` separados de `index_directory()` e `ask()`; parâmetro `seed` para respostas reprodutíveis.

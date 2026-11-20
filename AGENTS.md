@@ -16,7 +16,7 @@ Leia este arquivo antes de alterar qualquer coisa. Ele vale para qualquer agente
 | `app.py` | Interface Streamlit (sem regra de negócio) | Sim |
 | `documentos/` | Corpus (`.txt`, `.md`, `.pdf`) que alimenta a base | Sim (ver "Adicionar documentos") |
 | `chroma_db/` | Base vetorial **gerada**; fora do Git | Nunca à mão |
-| `tests/test_rag_pipeline.py` | Suíte ponta a ponta (30 testes) | Sim |
+| `tests/test_rag_pipeline.py` | Suíte ponta a ponta (89 testes, 69 offline) | Sim |
 | `scripts/verify_docx.py` | Auditoria do artigo + paridade Word × Markdown | Sim |
 | `scripts/docx_to_md.py` | Gera `Artigo/ARTIGO_DOCAI.md` a partir do Word | Sim |
 | `scripts/benchmark_latency.py` | Mede latência por modelo | Sim |
@@ -97,11 +97,11 @@ Não declare "testes passando" sem rodar o comando e ler a saída.
   docker exec docai-chatbot python -c "from rag_engine import RAGEngine; print(RAGEngine(ollama_url='http://ollama:11434').index_directory('./documentos'))"
   ```
 
-A indexação apaga a coleção anterior e recria tudo (não é incremental). Se a base corromper, apague a pasta `chroma_db/` e reindexe.
+O upload pela interface só grava quando o hash do conteúdo muda (`save_uploaded_document`) e reindexa automaticamente; a indexação em si apaga a coleção anterior e recria tudo (não é incremental). Se a base corromper, apague a pasta `chroma_db/` e reindexe.
 
 ### Trocar ou adicionar um modelo LLM
 
-Adicione o nome à lista do `st.selectbox` em `app.py`, faça `ollama pull` e rode a suíte com `DOCAI_TEST_MODEL=<modelo>`. Trocar o modelo de **embeddings** exige reindexar.
+O seletor do `app.py` mostra apenas `VALIDATED_LLM_MODELS` (em `ui_helpers.py`): faça `ollama pull`, rode a suíte com `DOCAI_TEST_MODEL=<modelo>` e, só se passar, acrescente o nome a essa lista (e a `REQUIRED_MODELS` nos testes). Trocar o modelo de **embeddings** exige reindexar.
 
 ## Convenções de código
 
