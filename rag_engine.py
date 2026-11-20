@@ -1,6 +1,7 @@
 import os
 import re
 import glob
+import hashlib
 import requests
 from decimal import Decimal, InvalidOperation
 from typing import List, Dict, Any, Optional, Tuple
@@ -134,6 +135,30 @@ def _unsupported_values(body: str, evidence: str) -> bool:
             if value is not None and value not in allowed:
                 return True
     return False
+
+
+def save_uploaded_document(docs_dir: str, filename: str, data: bytes) -> str:
+    """Grava um documento enviado pelo usuário, só quando o conteúdo mudou.
+
+    Devolve ``"rejected"`` (nome ou extensão inválidos; nada é gravado nem
+    criado), ``"created"`` (arquivo novo), ``"updated"`` (já existia com
+    conteúdo diferente e foi substituído) ou ``"unchanged"`` (mesmo conteúdo,
+    nada é regravado). Assim o chamador só reindexa quando algo mudou de fato.
+    """
+    destino = safe_document_path(docs_dir, filename)
+    if destino is None:
+        return "rejected"
+    if os.path.isfile(destino):
+        with open(destino, "rb") as existente:
+            if hashlib.sha256(existente.read()).digest() == hashlib.sha256(data).digest():
+                return "unchanged"
+        status = "updated"
+    else:
+        status = "created"
+    os.makedirs(docs_dir, exist_ok=True)
+    with open(destino, "wb") as saida:
+        saida.write(data)
+    return status
 
 
 def apply_refusal_guard(

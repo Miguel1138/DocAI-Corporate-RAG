@@ -166,7 +166,7 @@ Guardrails em vigor:
 
 ## 5. Testes
 
-A suíte [tests/test_rag_pipeline.py](tests/test_rag_pipeline.py) tem 30 testes em 5 grupos:
+A suíte [tests/test_rag_pipeline.py](tests/test_rag_pipeline.py) tem 89 testes em 7 grupos (69 rodam sem Ollama):
 
 | Grupo | Valida |
 | --- | --- |
@@ -174,7 +174,9 @@ A suíte [tests/test_rag_pipeline.py](tests/test_rag_pipeline.py) tem 30 testes 
 | 2. Ingestão | Leitura dos três documentos, chunking e persistência no ChromaDB |
 | 3. Recuperação | Fonte e cláusula corretas no topo; score igual à fórmula do cosseno |
 | 4. Geração | Férias (cláusulas 3.1 e 5.1), coparticipação (R$ 35,00 e R$ 60,00), furto de notebook (B.O. em 24 h e aviso à TI) |
-| 5. Anti-alucinação | "Qual é o valor do bônus de Natal para estagiários?" retorna estritamente a recusa padrão, nos dois modelos |
+| 5. Anti-alucinação | "Qual é o valor do bônus de Natal para estagiários?" retorna estritamente a recusa padrão, nos dois modelos; guarda estrutural (cláusula, documento e valores fora dos trechos) |
+| 6. Segurança | Upload não escapa da pasta de documentos; trechos são escapados antes de virar HTML |
+| 7. Robustez do app | Upload só regrava quando o hash muda; app sem recursos externos; seletor só com modelos validados |
 
 Os testes usam uma base vetorial temporária e não alteram `./chroma_db`.
 

@@ -1,8 +1,8 @@
 import os
 import time
 import streamlit as st
-from rag_engine import RAGEngine, safe_document_path
-from ui_helpers import source_box_html
+from rag_engine import RAGEngine, save_uploaded_document
+from ui_helpers import VALIDATED_LLM_MODELS, source_box_html
 
 # Configuração da página
 st.set_page_config(
@@ -71,9 +71,27 @@ if "indexed" not in st.session_state:
     st.session_state.indexed = False
 
 
+def reindex_documents(ollama_url: str, model_name: str, embedding_model: str, docs_dir: str) -> None:
+    """Reindexa a pasta de documentos e atualiza o motor RAG da sessão."""
+    with st.spinner("Lendo arquivos, criando chunks e gerando embeddings..."):
+        engine = RAGEngine(
+            ollama_url=ollama_url,
+            llm_model=model_name,
+            embedding_model=embedding_model
+        )
+        res = engine.index_directory(docs_dir=docs_dir)
+        if res.get("success"):
+            st.session_state.rag_engine = engine
+            st.session_state.indexed = True
+            st.success(res.get("message"))
+        else:
+            st.error(res.get("message"))
+
+
 # BARRA LATERAL (CONFIGURAÇÕES E INDEXAÇÃO)
 with st.sidebar:
-    st.image("https://cdn-icons-png.flaticon.com/512/4712/4712109.png", width=64)
+    # Emoji local: nenhum recurso é buscado fora da máquina (soberania de dados)
+    st.markdown('<div style="font-size: 3.5rem; line-height: 1;">🤖</div>', unsafe_allow_html=True)
     st.title("Painel de Controle")
 
     st.subheader("1. Conexão Ollama (Local)")
@@ -94,7 +112,7 @@ with st.sidebar:
 
     model_name = st.selectbox(
         "Modelo LLM:",
-        ["llama3.1:8b", "llama3.2:3b", "qwen2.5:7b", "mistral:7b"],
+        VALIDATED_LLM_MODELS,
         index=0
     )
     
@@ -116,34 +134,21 @@ with st.sidebar:
     # Upload dinâmico opcional
     uploaded_files = st.file_uploader("Adicionar novo PDF ou TXT:", accept_multiple_files=True, type=["txt", "pdf", "md"])
     if uploaded_files:
-        saved = 0
+        # O uploader mantém os arquivos entre reruns: só grava (e reindexa) o que mudou.
+        resultados = {"created": [], "updated": [], "unchanged": [], "rejected": []}
         for uf in uploaded_files:
-            file_path = safe_document_path(docs_folder, uf.name)
-            if file_path is None:
-                st.warning(f"Arquivo rejeitado (nome ou extensão inválidos): `{uf.name}`")
-                continue
-            os.makedirs(docs_folder, exist_ok=True)
-            with open(file_path, "wb") as f_out:
-                f_out.write(uf.getbuffer())
-            saved += 1
-        if saved:
-            st.success(f"{saved} arquivo(s) salvo(s)!")
+            resultados[save_uploaded_document(docs_folder, uf.name, uf.getvalue())].append(uf.name)
+        for nome in resultados["rejected"]:
+            st.warning(f"Arquivo rejeitado (nome ou extensão inválidos): `{nome}`")
+        for nome in resultados["updated"]:
+            st.warning(f"`{nome}` já existia e foi substituído pelo novo conteúdo.")
+        if resultados["created"] or resultados["updated"]:
+            st.success(f"{len(resultados['created']) + len(resultados['updated'])} arquivo(s) salvo(s)!")
+            reindex_documents(ollama_url, model_name, embedding_model, docs_folder)
 
     # Botão de Indexação
     if st.button("⚡ Indexar Documentos no ChromaDB", type="primary", use_container_width=True):
-        with st.spinner("Lendo arquivos, criando chunks e gerando embeddings..."):
-            engine = RAGEngine(
-                ollama_url=ollama_url,
-                llm_model=model_name,
-                embedding_model=embedding_model
-            )
-            res = engine.index_directory(docs_dir=docs_folder)
-            if res.get("success"):
-                st.session_state.rag_engine = engine
-                st.session_state.indexed = True
-                st.success(res.get("message"))
-            else:
-                st.error(res.get("message"))
+        reindex_documents(ollama_url, model_name, embedding_model, docs_folder)
 
     st.divider()
 
