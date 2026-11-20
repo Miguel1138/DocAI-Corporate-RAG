@@ -19,8 +19,9 @@ from rag_engine import (
     RAGEngine,
     apply_refusal_guard,
     safe_document_path,
+    save_uploaded_document,
 )
-from ui_helpers import source_box_html
+from ui_helpers import VALIDATED_LLM_MODELS, source_box_html
 
 REQUIRED_MODELS = ["nomic-embed-text", "llama3.1:8b", "llama3.2:3b"]
 
@@ -467,6 +468,74 @@ def test_6_trecho_recuperado_e_escapado_antes_de_virar_html():
 
 def test_6_trecho_preserva_quebras_de_linha_do_texto():
     assert "<br>" in source_box_html("linha 1\nlinha 2")
+
+
+# ---------------------------------------------------------------------------
+# Teste 7 - Robustez do app: upload por hash, ícone local, modelos validados
+# ---------------------------------------------------------------------------
+def test_7_upload_novo_arquivo_e_criado(tmp_path):
+    assert save_uploaded_document(str(tmp_path), "nova.txt", b"1.1. Regra") == "created"
+    assert (tmp_path / "nova.txt").read_bytes() == b"1.1. Regra"
+
+
+def test_7_upload_com_mesmo_conteudo_nao_regrava(tmp_path):
+    save_uploaded_document(str(tmp_path), "nova.txt", b"1.1. Regra")
+    alvo = tmp_path / "nova.txt"
+    mtime_antes = alvo.stat().st_mtime_ns
+    assert save_uploaded_document(str(tmp_path), "nova.txt", b"1.1. Regra") == "unchanged"
+    assert alvo.stat().st_mtime_ns == mtime_antes
+
+
+def test_7_upload_com_conteudo_diferente_atualiza_e_sinaliza(tmp_path):
+    save_uploaded_document(str(tmp_path), "nova.txt", b"1.1. Regra A")
+    assert save_uploaded_document(str(tmp_path), "nova.txt", b"1.1. Regra B") == "updated"
+    assert (tmp_path / "nova.txt").read_bytes() == b"1.1. Regra B"
+
+
+@pytest.mark.parametrize("nome", ["script.exe", ".env", "sem_extensao", ""])
+def test_7_upload_invalido_e_rejeitado_sem_gravar(tmp_path, nome):
+    assert save_uploaded_document(str(tmp_path / "docs"), nome, b"x") == "rejected"
+    assert not (tmp_path / "docs").exists()
+
+
+def test_7_upload_com_traversal_fica_dentro_da_pasta_de_documentos(tmp_path):
+    docs = tmp_path / "docs"
+    assert save_uploaded_document(str(docs), "../fora.txt", b"x") == "created"
+    assert (docs / "fora.txt").exists()
+    assert not (tmp_path / "fora.txt").exists()
+
+
+def test_7_upload_cria_a_pasta_de_documentos_se_nao_existir(tmp_path):
+    destino = tmp_path / "docs"
+    assert save_uploaded_document(str(destino), "a.md", b"# a") == "created"
+    assert (destino / "a.md").exists()
+
+
+def test_7_modelos_do_seletor_sao_os_validados():
+    assert VALIDATED_LLM_MODELS == ["llama3.1:8b", "llama3.2:3b"]
+    assert set(VALIDATED_LLM_MODELS) <= set(REQUIRED_MODELS)
+    assert VALIDATED_LLM_MODELS[0] == PRIMARY_MODEL or PRIMARY_MODEL in VALIDATED_LLM_MODELS
+
+
+def test_7_app_usa_a_lista_de_modelos_validados():
+    fonte = open(os.path.join(os.path.dirname(__file__), "..", "app.py"), encoding="utf-8").read()
+    assert "VALIDATED_LLM_MODELS" in fonte
+    assert "qwen2.5" not in fonte and "mistral:7b" not in fonte
+
+
+def test_7_app_nao_carrega_recursos_externos():
+    """Soberania de dados: o app não pode buscar imagens/scripts em hosts externos."""
+    import re
+
+    fonte = open(os.path.join(os.path.dirname(__file__), "..", "app.py"), encoding="utf-8").read()
+    externos = re.findall(r"https?://(?!localhost|127\.0\.0\.1)[^\s\"')]+", fonte)
+    assert externos == []
+
+
+def test_7_app_nao_regrava_upload_sem_helper():
+    fonte = open(os.path.join(os.path.dirname(__file__), "..", "app.py"), encoding="utf-8").read()
+    assert "save_uploaded_document" in fonte
+    assert 'open(file_path, "wb")' not in fonte
 
 
 if __name__ == "__main__":
