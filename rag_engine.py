@@ -52,6 +52,27 @@ _ABSENCE_PATTERN = re.compile(
 _CLAUSE_PATTERN = re.compile(r"\b\d{1,2}\.\d{1,2}\b")
 
 
+SUPPORTED_EXTENSIONS = (".txt", ".md", ".pdf")
+
+
+def safe_document_path(docs_dir: str, filename: str) -> Optional[str]:
+    """Resolve com segurança o destino de um arquivo enviado pelo usuário.
+
+    Descarta qualquer componente de diretório (``../``, caminhos absolutos,
+    separadores de Windows ou Unix), rejeita nomes vazios, ocultos ou com
+    extensão fora de ``SUPPORTED_EXTENSIONS`` e garante que o resultado fique
+    dentro de ``docs_dir``. Devolve ``None`` quando o nome não é aceitável.
+    """
+    name = os.path.basename((filename or "").replace("\\", "/")).strip()
+    if not name or name.startswith(".") or not name.lower().endswith(SUPPORTED_EXTENSIONS):
+        return None
+    base = os.path.abspath(docs_dir)
+    destino = os.path.abspath(os.path.join(base, name))
+    if os.path.dirname(destino) != base:
+        return None
+    return destino
+
+
 def apply_refusal_guard(answer: str, source_names: List[str]) -> str:
     """Guarda determinística pós-geração da trava anti-alucinação.
 

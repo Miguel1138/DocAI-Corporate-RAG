@@ -6,6 +6,7 @@ Execução:
     python tests/test_rag_pipeline.py       # atalho equivalente ao primeiro
 """
 import math
+import os
 import sys
 
 import pytest
@@ -17,7 +18,9 @@ from rag_engine import (
     SYSTEM_PROMPT,
     RAGEngine,
     apply_refusal_guard,
+    safe_document_path,
 )
+from ui_helpers import source_box_html
 
 REQUIRED_MODELS = ["nomic-embed-text", "llama3.1:8b", "llama3.2:3b"]
 
@@ -246,6 +249,48 @@ def test_5_pergunta_fora_da_base_retorna_estritamente_a_recusa(engine, model):
 @ollama
 def test_5_recusa_nao_inventa_valor_monetario(engine):
     assert "R$" not in _ask(engine, Q_PEGADINHA)["answer"]
+
+
+# ---------------------------------------------------------------------------
+# Teste 6 - Segurança do upload e da renderização (offline)
+# ---------------------------------------------------------------------------
+@pytest.mark.parametrize(
+    "nome",
+    [
+        "../../etc/passwd.txt",
+        r"..\..\Windows\win.txt",
+        "/abs/caminho/politica.txt",
+        r"C:\Users\x\politica.txt",
+        "../fora.md",
+    ],
+)
+def test_6_upload_nao_escapa_da_pasta_de_documentos(tmp_path, nome):
+    destino = safe_document_path(str(tmp_path), nome)
+    assert destino is not None
+    assert os.path.dirname(os.path.abspath(destino)) == os.path.abspath(str(tmp_path))
+    assert os.path.basename(destino) in {"passwd.txt", "win.txt", "politica.txt", "fora.md"}
+
+
+@pytest.mark.parametrize("nome", ["", "   ", "..", ".", ".env", "script.exe", "doc.txt.exe", "sem_extensao", "dir/"])
+def test_6_upload_rejeita_nomes_invalidos_ou_extensao_nao_suportada(tmp_path, nome):
+    assert safe_document_path(str(tmp_path), nome) is None
+
+
+@pytest.mark.parametrize("nome", ["politica.txt", "Manual TI.PDF", "notas.md"])
+def test_6_upload_aceita_nomes_validos(tmp_path, nome):
+    destino = safe_document_path(str(tmp_path), nome)
+    assert destino == os.path.join(os.path.abspath(str(tmp_path)), nome)
+
+
+def test_6_trecho_recuperado_e_escapado_antes_de_virar_html():
+    html_saida = source_box_html('<script>alert(1)</script> <img src=x onerror=y> & "ok"')
+    assert "<script>" not in html_saida and "<img" not in html_saida
+    assert "&lt;script&gt;" in html_saida and "&amp;" in html_saida
+    assert html_saida.startswith('<div class="source-box">')
+
+
+def test_6_trecho_preserva_quebras_de_linha_do_texto():
+    assert "<br>" in source_box_html("linha 1\nlinha 2")
 
 
 if __name__ == "__main__":
