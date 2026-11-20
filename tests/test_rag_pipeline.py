@@ -251,6 +251,107 @@ def test_5_recusa_nao_inventa_valor_monetario(engine):
     assert "R$" not in _ask(engine, Q_PEGADINHA)["answer"]
 
 
+CTX_FERIAS = (
+    "--- [Trecho 1 | Fonte: politica_de_ferias.txt] ---\n"
+    "3. PRAZOS DE SOLICITAÇÃO E ANTECEDÊNCIA\n"
+    "3.1. Toda solicitação de férias deve ser registrada com antecedência mínima "
+    "de 30 (trinta) dias corridos.\n"
+    "5.1. É facultado converter 1/3 (um terço) das férias em abono pecuniário "
+    "(equivalente a 10 dias).\n\n"
+    "--- [Trecho 2 | Fonte: guia_de_beneficios.txt] ---\n"
+    "5.1. Reembolso de até 70% da mensalidade, limitado ao teto de R$ 800,00 mensais.\n"
+)
+FONTES_CTX = ["politica_de_ferias.txt", "guia_de_beneficios.txt"]
+
+
+def _guarda(resposta, pergunta=""):
+    return apply_refusal_guard(resposta, FONTES_CTX, context=CTX_FERIAS, question=pergunta)
+
+
+@pytest.mark.parametrize(
+    "resposta",
+    [
+        "Não consta no contexto o bônus, mas estimo cerca de 1.5 salários.",
+        "Não encontrei isso, talvez no Windows 10.5.",
+    ],
+    ids=["decimal_1.5", "versao_10.5"],
+)
+def test_5_decimais_nao_contam_como_clausula(resposta):
+    assert _guarda(resposta) == EXPECTED_REFUSAL
+
+
+@pytest.mark.parametrize(
+    "resposta",
+    [
+        "Essa regra inexiste nos documentos fornecidos.",
+        "A informação está ausente do material.",
+        "Há uma ausência de previsão sobre o tema.",
+        "O documento não especifica esse valor.",
+        "Sem previsão no material fornecido.",
+    ],
+)
+def test_5_vocabulario_ampliado_de_negativa(resposta):
+    assert _guarda(resposta) == EXPECTED_REFUSAL
+
+
+def test_5_negativa_no_meio_sem_citacao_e_recusada():
+    resposta = "A regra não consta para estagiários, mas vale para CLT: 30 dias."
+    assert _guarda(resposta) == EXPECTED_REFUSAL
+
+
+def test_5_clausula_inexistente_nos_trechos_e_recusada():
+    resposta = "Conforme a cláusula 9.9 de politica_de_ferias.txt, o prazo é de 30 dias."
+    assert _guarda(resposta) == EXPECTED_REFUSAL
+
+
+def test_5_documento_fora_das_fontes_recuperadas_e_recusado():
+    resposta = "Conforme a cláusula 3.1 de politica_inventada.txt, o prazo é de 30 dias."
+    assert _guarda(resposta) == EXPECTED_REFUSAL
+
+
+def test_5_valor_monetario_inventado_com_citacao_e_recusado():
+    resposta = "Conforme guia_de_beneficios.txt, o bônus de Natal é R$ 500,00."
+    assert _guarda(resposta) == EXPECTED_REFUSAL
+
+
+def test_5_valor_monetario_inventado_sem_citacao_e_recusado():
+    resposta = "O bônus de Natal para estagiários é de R$ 500,00."
+    assert _guarda(resposta) == EXPECTED_REFUSAL
+
+
+def test_5_prazo_e_percentual_inventados_sao_recusados():
+    assert _guarda("Pela cláusula 3.1, a antecedência é de 45 dias.") == EXPECTED_REFUSAL
+    assert _guarda("Pela cláusula 5.1, o reembolso é de 90%.") == EXPECTED_REFUSAL
+
+
+def test_5_resposta_valida_com_valores_do_contexto_e_preservada():
+    resposta = (
+        "Pela cláusula 3.1 (politica_de_ferias.txt), a antecedência mínima é de 30 dias. "
+        "O abono pecuniário (cláusula 5.1) equivale a 10 dias; no guia_de_beneficios.txt, "
+        "o reembolso é de até 70%, com teto de R$ 800,00."
+    )
+    assert _guarda(resposta) == resposta
+
+
+def test_5_valor_citado_na_pergunta_nao_conta_como_invencao():
+    resposta = "Sim, cláusula 5.1: o abono pecuniário equivale a 10 dias."
+    assert _guarda(resposta, "Posso vender 10 dias?") == resposta
+
+
+def test_5_lista_de_clausulas_validas_e_preservada():
+    resposta = "Conforme as cláusulas 3.1 e 5.1 de politica_de_ferias.txt, são 30 dias e 10 dias."
+    assert _guarda(resposta) == resposta
+
+
+def test_5_engine_repassa_contexto_e_pergunta_ao_guarda():
+    """ask() deve aplicar a guarda estrutural com o contexto realmente enviado ao modelo."""
+    import inspect
+    import rag_engine
+
+    fonte = inspect.getsource(rag_engine.RAGEngine.ask)
+    assert "context=" in fonte and "question=" in fonte
+
+
 # ---------------------------------------------------------------------------
 # Teste 6 - Segurança do upload e da renderização (offline)
 # ---------------------------------------------------------------------------
