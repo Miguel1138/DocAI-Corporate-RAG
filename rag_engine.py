@@ -61,8 +61,11 @@ _CLAUSE_REF_PATTERN = re.compile(
     re.IGNORECASE,
 )
 _CLAUSE_NUMBER = re.compile(r"\d{1,2}\.\d{1,2}")
-# Numeração real de cláusula nos trechos recuperados: início de linha ("3.1. Texto...").
-_CONTEXT_CLAUSE_PATTERN = re.compile(r"(?m)^[ \t]*(?:[-*#>]+[ \t]*)?(\d{1,2}\.\d{1,2})\.?(?=\s|$)")
+# Numeração de cláusula presente nos trechos recuperados, em qualquer posição da linha.
+# "3.1.2" valida também o prefixo "3.1"; o lookbehind evita casar "1.2" dentro de "3.1.2".
+_CONTEXT_CLAUSE_PATTERN = re.compile(r"(?<![\d.])(\d{1,2}\.\d{1,2})(?!\d)")
+# Cabeçalho "--- [Trecho N | Fonte: x] ---" montado por ask(): não é evidência de valores.
+_CONTEXT_HEADER_PATTERN = re.compile(r"--- \[Trecho \d+ \| Fonte:[^\]]*\] ---")
 # Nome de arquivo citado na resposta.
 _DOC_NAME_PATTERN = re.compile(r"\b[\w\-]+\.(?:txt|md|pdf)\b", re.IGNORECASE)
 
@@ -71,7 +74,7 @@ _NUMBER_PATTERN = re.compile(r"\d+(?:\.\d{3})*(?:,\d+)?")
 _VALUE_PATTERNS = (
     re.compile(r"R\$\s*(\d+(?:\.\d{3})*(?:,\d+)?)"),
     re.compile(r"(\d+(?:,\d+)?)\s*%"),
-    re.compile(r"(\d+)\s*(?:\(\s*[^)\d]{1,40}\)\s*)?(?:dias|horas|meses)\b", re.IGNORECASE),
+    re.compile(r"(\d+)\s*(?:\(\s*[^)\d]{1,40}\)\s*)?(?:dias?|horas?|m[eê]s(?:es)?)\b", re.IGNORECASE),
 )
 
 
@@ -112,6 +115,16 @@ def _cited_clauses(text: str) -> set:
     return cited
 
 
+def _strip_known_names(text: str, source_names: List[str]) -> str:
+    """Remove da resposta os nomes das fontes recuperadas (com espaços ou pontos no nome).
+
+    Sobra apenas o que parece nome de arquivo mas não é uma fonte conhecida.
+    """
+    for name in sorted({n for n in source_names if n}, key=len, reverse=True):
+        text = re.sub(re.escape(name), " ", text, flags=re.IGNORECASE)
+    return text
+
+
 def _unsupported_values(body: str, evidence: str) -> bool:
     """True se a resposta traz R$, % ou prazo cujo número não aparece na evidência."""
     allowed = {d for d in map(_to_decimal, _NUMBER_PATTERN.findall(evidence)) if d is not None}
@@ -148,10 +161,10 @@ def apply_refusal_guard(
         valid_clauses = set(_CONTEXT_CLAUSE_PATTERN.findall(context))
         if cited_clauses - valid_clauses:
             return REFUSAL_MESSAGE
-        known = {name.lower() for name in source_names if name}
-        if any(name.lower() not in known for name in _DOC_NAME_PATTERN.findall(body)):
+        if _DOC_NAME_PATTERN.search(_strip_known_names(body, source_names)):
             return REFUSAL_MESSAGE
-        if _unsupported_values(body, f"{context}\n{question}"):
+        evidence = _CONTEXT_HEADER_PATTERN.sub("", context)
+        if _unsupported_values(body, f"{evidence}\n{question}"):
             return REFUSAL_MESSAGE
 
     signals_absence = REFUSAL_MESSAGE in text or bool(_ABSENCE_PATTERN.search(text))

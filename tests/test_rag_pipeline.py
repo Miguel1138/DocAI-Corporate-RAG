@@ -343,13 +343,88 @@ def test_5_lista_de_clausulas_validas_e_preservada():
     assert _guarda(resposta) == resposta
 
 
-def test_5_engine_repassa_contexto_e_pergunta_ao_guarda():
+def test_5_engine_repassa_contexto_e_pergunta_ao_guarda(monkeypatch):
     """ask() deve aplicar a guarda estrutural com o contexto realmente enviado ao modelo."""
-    import inspect
+    from langchain_core.runnables import RunnableLambda
+
     import rag_engine
 
-    fonte = inspect.getsource(rag_engine.RAGEngine.ask)
-    assert "context=" in fonte and "question=" in fonte
+    fontes = [
+        {"doc": "politica_de_ferias.txt", "content": "3.1. Prazo de 30 dias.", "score": 0.9},
+        {"doc": "guia_de_beneficios.txt", "content": "5.1. Teto de R$ 800,00.", "score": 0.8},
+    ]
+    chamadas = []
+
+    def espiao(answer, source_names, context=None, question=""):
+        chamadas.append(
+            {"answer": answer, "source_names": source_names, "context": context, "question": question}
+        )
+        return "resposta final"
+
+    eng = RAGEngine()
+    eng.vectorstore = object()  # evita carregar o ChromaDB
+    monkeypatch.setattr(eng, "retrieve", lambda q, k=5: fontes)
+    monkeypatch.setattr(eng, "get_llm", lambda **kw: RunnableLambda(lambda _: "resposta bruta"))
+    monkeypatch.setattr(rag_engine, "apply_refusal_guard", espiao)
+
+    resultado = eng.ask("Qual o prazo?")
+
+    assert resultado["answer"] == "resposta final"
+    assert len(chamadas) == 1
+    chamada = chamadas[0]
+    assert chamada["answer"] == "resposta bruta"
+    assert chamada["source_names"] == ["politica_de_ferias.txt", "guia_de_beneficios.txt"]
+    assert chamada["question"] == "Qual o prazo?"
+    assert chamada["context"] == resultado["context"]
+    assert "3.1. Prazo de 30 dias." in chamada["context"]
+    assert "5.1. Teto de R$ 800,00." in chamada["context"]
+
+
+def test_5_nome_de_arquivo_com_espaco_ou_ponto_e_aceito_quando_e_fonte():
+    fontes = ["Manual TI.PDF", "guia.v2.txt"]
+    ctx = "--- [Trecho 1 | Fonte: Manual TI.PDF] ---\n2.1. Abra chamado no ServiceDesk.\n"
+    resposta = "Conforme a cláusula 2.1 do Manual TI.PDF, abra um chamado no ServiceDesk."
+    assert apply_refusal_guard(resposta, fontes, context=ctx) == resposta
+    resposta2 = "Conforme a cláusula 2.1 do guia.v2.txt, abra um chamado no ServiceDesk."
+    assert apply_refusal_guard(resposta2, fontes, context=ctx) == resposta2
+
+
+def test_5_nome_de_arquivo_com_espaco_nao_fonte_continua_recusado():
+    ctx = "--- [Trecho 1 | Fonte: Manual TI.PDF] ---\n2.1. Abra chamado no ServiceDesk.\n"
+    resposta = "Conforme a cláusula 2.1 do Manual Falso.PDF, abra um chamado."
+    assert apply_refusal_guard(resposta, ["Manual TI.PDF"], context=ctx) == EXPECTED_REFUSAL
+
+
+def test_5_clausula_de_tres_niveis_no_contexto_valida_o_prefixo():
+    ctx = "--- [Trecho 1 | Fonte: politica_de_ferias.txt] ---\n3.1.2 Prazo de 30 dias corridos.\n"
+    fontes = ["politica_de_ferias.txt"]
+    for resposta in (
+        "Pela cláusula 3.1 de politica_de_ferias.txt, o prazo é de 30 dias.",
+        "Pela cláusula 3.1.2 de politica_de_ferias.txt, o prazo é de 30 dias.",
+    ):
+        assert apply_refusal_guard(resposta, fontes, context=ctx) == resposta
+
+
+def test_5_clausula_no_meio_da_linha_do_contexto_e_valida():
+    ctx = (
+        "--- [Trecho 1 | Fonte: politica_de_ferias.txt] ---\n"
+        "o prazo segue o disposto em 5.1 abaixo, de 10 dias.\n"
+    )
+    resposta = "Conforme a cláusula 5.1 de politica_de_ferias.txt, o abono equivale a 10 dias."
+    assert apply_refusal_guard(resposta, ["politica_de_ferias.txt"], context=ctx) == resposta
+
+
+def test_5_clausula_inexistente_continua_recusada_com_tres_niveis():
+    ctx = "--- [Trecho 1 | Fonte: politica_de_ferias.txt] ---\n3.1.2 Prazo de 30 dias corridos.\n"
+    resposta = "Pela cláusula 4.1 de politica_de_ferias.txt, o prazo é de 30 dias."
+    assert apply_refusal_guard(resposta, ["politica_de_ferias.txt"], context=ctx) == EXPECTED_REFUSAL
+
+
+@pytest.mark.parametrize("valor", ["2 dias", "2 meses", "2 horas", "2 mês", "2 dia"])
+def test_5_numeros_dos_cabecalhos_de_trecho_nao_validam_valores(valor):
+    """'Trecho 2' do cabeçalho não é evidência de que '2 dias', '2 meses' constem (inclui singular)."""
+    resposta = f"Pela cláusula 3.1 (politica_de_ferias.txt), o prazo é de {valor}."
+    assert _guarda(resposta) == EXPECTED_REFUSAL
 
 
 # ---------------------------------------------------------------------------
